@@ -111,3 +111,23 @@ describe('halt', () => {
     expect(game.trySwap(b.idx(3, 0), b.idx(3, 1))).toBe(false);
   });
 });
+
+describe('reshuffle on dead board', () => {
+  const DEAD = ['0101', '2323', '0101', '2323'];
+
+  it('clears a board with no moves and drops a fresh one that has a move', async () => {
+    const { game, events } = makeGame(DEAD, { reshuffleOnNoMoves: true });
+    expect(game.board.countPossibleMoves()).toBe(0);
+    await settle(game);
+    expect(events.some((e) => e.kind === 'reshuffled')).toBe(true);
+    expect(game.board.countPossibleMoves()).toBeGreaterThan(0);
+    assertSettled(game);
+  });
+
+  it('leaves a board with moves alone', async () => {
+    const { game, events } = makeGame(LAYOUT, { reshuffleOnNoMoves: true });
+    await settle(game);
+    expect(events.some((e) => e.kind === 'reshuffled')).toBe(false);
+    expect(game.board.toRows()).toEqual(LAYOUT);
+  });
+});

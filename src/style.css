@@ -62,3 +62,40 @@ button:focus-visible, input:focus-visible, canvas:focus-visible { outline: 2px s
 .log time { opacity: 0.6; margin-right: 6px; }
 .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-top: 10px; }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.field { position: relative; }
+.arena {
+  display: flex; align-items: stretch; gap: 10px; margin-bottom: 10px; color: #e6eaf1;
+  padding: 8px 10px; border-radius: 8px; background: var(--cell);
+}
+.unit { display: grid; gap: 4px; justify-items: center; min-width: 0; flex: 1; padding: 4px 6px; border-radius: 8px; border: 2px solid transparent; }
+.unit.hero { flex: 1.2; }
+.unit.current { border-color: var(--warn); }
+.unit .face { font-size: 34px; line-height: 1; }
+.unit .name { font-size: 12px; color: #aab4c4; }
+.unit .bar { width: 100%; }
+.unit .hp { font-size: 12px; font-weight: 500; }
+.unit.hero .bar i { background: var(--ok); }
+.unit.enemy .bar i { background: var(--warn); }
+.arena .vs { align-self: center; font-size: 12px; color: #aab4c4; }
+.overlay {
+  position: absolute; inset: 0; border-radius: 8px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px; padding: 20px; text-align: center;
+  background: color-mix(in srgb, var(--board) 88%, transparent); color: #e6eaf1; overflow: auto;
+}
+.overlay[hidden] { display: none; }
+.overlay h2 { margin: 0; font-size: 26px; }
+.overlay p { margin: 0; color: #aab4c4; font-size: 14px; }
+.overlay .buttons { justify-content: center; }
+.overlay .skill {
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; text-align: left; width: 100%; max-width: 420px;
+  padding: 10px 12px; border: 1px solid #2a3242; border-radius: 10px; align-items: center;
+}
+.overlay .skill small { grid-column: 1; color: #aab4c4; }
+.overlay button:disabled { opacity: 0.45; cursor: not-allowed; }
+.bar-row { display: grid; grid-template-columns: 56px 1fr 34px; gap: 8px; align-items: center; margin-top: 10px; font-size: 13px; }
+.bar-row b { text-align: right; font-weight: 500; }
+.bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.bar i { display: block; height: 100%; width: 100%; background: var(--ok); }
+.bar-row.enemy .bar i { background: var(--warn); }
+.bar-row.current span { font-weight: 600; }
+dd.warn { color: var(--warn); }

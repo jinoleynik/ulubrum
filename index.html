@@ -14,7 +14,13 @@
       <section>
         <h1>Match-3 MVP</h1>
         <p class="sub">Drag a tile toward a neighbour, or tap one tile and then an adjacent one. Tiles stay playable while others clear and fall.</p>
-        <div class="board-wrap"><canvas id="board" tabindex="0" aria-label="Match-3 board"></canvas></div>
+        <div class="board-wrap">
+          <div class="arena" id="arena" aria-label="Combat"></div>
+          <div class="field">
+            <canvas id="board" tabindex="0" aria-label="Match-3 board"></canvas>
+            <div class="overlay" id="overlay" hidden></div>
+          </div>
+        </div>
         <div class="legend" id="legend" hidden>
           <span><i style="background: #f5c518"></i>S swapping</span>
           <span><i style="background: #e5484d"></i>D destroying</span>
@@ -23,6 +29,17 @@
       </section>
 
       <aside>
+        <div class="panel" id="hud">
+          <h2>Round</h2>
+          <dl class="stats">
+            <dt>Score</dt><dd id="hScore">0</dd>
+            <dt>Combo</dt><dd id="hCombo">-</dd>
+            <dt>Time</dt><dd id="hTime">1:30</dd>
+            <dt>Enemies left</dt><dd id="hEnemies">8</dd>
+          </dl>
+          <div class="buttons"><button id="btnMenu">Menu</button></div>
+        </div>
+
         <div class="panel">
           <h2>State</h2>
           <dl class="stats">
@@ -42,6 +59,7 @@
           <div class="row"><label for="speed">Speed <span id="speedValue">1.00×</span></label><input id="speed" type="range" min="0.05" max="1.5" step="0.05" value="1" /></div>
           <div class="row"><label for="states">Show cell states</label><input id="states" type="checkbox" /></div>
           <div class="row"><label for="splash">Splash on player's first wave (next board)</label><input id="splash" type="checkbox" /></div>
+          <div class="row"><label for="grid">Grid size (N×N, next board)</label><input id="grid" type="number" min="4" max="12" value="8" /></div>
           <div class="row"><label for="colors">Colors</label><input id="colors" type="number" min="3" max="6" value="6" /></div>
           <div class="row"><label for="seed">Seed</label><input id="seed" type="number" value="1234" /></div>
           <div class="buttons">

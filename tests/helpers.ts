@@ -27,6 +27,7 @@ export function makeGame(layout: string[] | undefined, overrides: Partial<Match3
   const events: GameEvent[] = [];
   const config = {
     ...defaultConfig,
+    reshuffleOnNoMoves: false,
     ...(layout ? { width: layout[0].length, height: layout.length } : {}),
     ...overrides,
   };

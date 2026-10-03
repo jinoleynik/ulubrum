@@ -5,6 +5,7 @@ export interface PanelSettings {
   showStates: boolean;
   splash: boolean;
   colorCount: number;
+  gridSize: number;
   seed: number;
 }
 
@@ -30,6 +31,7 @@ export class Panel {
     const states = $<HTMLInputElement>('states');
     const splash = $<HTMLInputElement>('splash');
     const colors = $<HTMLInputElement>('colors');
+    const grid = $<HTMLInputElement>('grid');
     const seed = $<HTMLInputElement>('seed');
 
     this.settings = {
@@ -37,6 +39,7 @@ export class Panel {
       showStates: states.checked,
       splash: splash.checked,
       colorCount: Number(colors.value),
+      gridSize: Number(grid.value),
       seed: Number(seed.value),
     };
 
@@ -54,6 +57,9 @@ export class Panel {
       const n = Math.max(3, Math.min(6, Math.trunc(Number(colors.value)) || 6));
       colors.value = String(n);
       this.settings.colorCount = n;
+      const g = Math.max(4, Math.min(12, Math.trunc(Number(grid.value)) || 8));
+      grid.value = String(g);
+      this.settings.gridSize = g;
       this.settings.seed = Math.trunc(Number(seed.value)) || 0;
     };
     $('btnNew').addEventListener('click', () => {
@@ -123,6 +129,8 @@ export class Panel {
         return this.write(`No match-free color at (${e.x},${e.y}); fell back to random`, 'warn');
       case 'violation':
         return this.write(`Rule violation: ${e.message}`, 'warn');
+      case 'reshuffled':
+        return this.write('No moves left: board cleared and refilled', 'info');
       case 'halted':
         return this.write('Halted: coroutines stopped, input locked', 'warn');
     }

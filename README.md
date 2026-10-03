@@ -90,3 +90,14 @@ assertSettled(game); // all Idle, views in place, no matches left
 ```
 
 `settle` and `frames` drive the scheduler by hand, so tests are deterministic and need no timers.
+
+## Round layer (score, combat, chargers, skills, coins)
+
+`src/session/` sits on top of the core and is also pure TypeScript:
+
+- `config.ts` defaults for scoring, combat, timer, coins and skills
+- `score.ts`, `combat.ts`, `skills.ts` score/combo, hero vs enemy queue, skill formulas
+- `progress.ts` coins, skill levels and high score behind a `localStorage`-shaped store
+- `session.ts` wires the board's `waveDestroying` events into score → combat → charger effects, runs the display-only countdown, halts the board on win or loss and pays victory coins once
+
+Chargers live on `TileView.charger`. The core grants them for 4+ lines in the Heal/Explosion colors on a chain's opening wave only, applies them after the board settles, and expands Explosion splash (Chebyshev radius = level) on the opening wave only.

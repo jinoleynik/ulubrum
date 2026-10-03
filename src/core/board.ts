@@ -8,6 +8,13 @@ export interface BoardHooks {
   onSpawnFallback?: (x: number, y: number) => void;
 }
 
+/** One straight line of 3+ same-colored cells. */
+export interface MatchRun {
+  type: number;
+  length: number;
+  cells: number[];
+}
+
 type Eligible = (x: number, y: number) => boolean;
 
 /**
@@ -90,20 +97,34 @@ export class Board {
 
   // ── MATCH ────────────────────────────────────────────────────
 
+  /** Cells of every 3+ straight line on the board, as one set. */
+  findMatches(): Set<number> {
+    return this.findMatchRuns().cells;
+  }
+
   /**
    * Whole-board scan for 3+ identical colors in a straight row or column.
    * Only Idle non-empty cells participate; any other state breaks a run.
+   * `cells` is the union of all runs (so L/T/+ shapes come out connected);
+   * `runs` keeps each straight line for charger grants.
    */
-  findMatches(): Set<number> {
-    const out = new Set<number>();
+  findMatchRuns(): { cells: Set<number>; runs: MatchRun[] } {
+    const cells = new Set<number>();
+    const runs: MatchRun[] = [];
     const same = (a: Cell, b: Cell) => isActive(a) && isActive(b) && a.type === b.type;
+    const record = (type: number, run: number[]) => {
+      runs.push({ type, length: run.length, cells: run });
+      for (const i of run) cells.add(i);
+    };
 
     for (let y = 0; y < this.height; y++) {
       let start = 0;
       for (let x = 1; x <= this.width; x++) {
         if (x < this.width && same(this.at(x - 1, y), this.at(x, y))) continue;
         if (x - start >= 3 && isActive(this.at(start, y))) {
-          for (let i = start; i < x; i++) out.add(this.idx(i, y));
+          const run: number[] = [];
+          for (let i = start; i < x; i++) run.push(this.idx(i, y));
+          record(this.at(start, y).type, run);
         }
         start = x;
       }
@@ -114,13 +135,15 @@ export class Board {
       for (let y = 1; y <= this.height; y++) {
         if (y < this.height && same(this.at(x, y - 1), this.at(x, y))) continue;
         if (y - start >= 3 && isActive(this.at(x, start))) {
-          for (let i = start; i < y; i++) out.add(this.idx(x, i));
+          const run: number[] = [];
+          for (let i = start; i < y; i++) run.push(this.idx(x, i));
+          record(this.at(x, start).type, run);
         }
         start = y;
       }
     }
 
-    return out;
+    return { cells, runs };
   }
 
   // ── SWAP ─────────────────────────────────────────────────────

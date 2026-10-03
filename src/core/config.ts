@@ -17,6 +17,14 @@ export interface Match3Config {
   selectScale: number;
   /** Player's first wave only: also clear Idle orthogonal neighbours of matched tiles. */
   firstWaveSplash: boolean;
+  /** When the settled board has no valid swap, clear it and drop a fresh set of tiles. */
+  reshuffleOnNoMoves: boolean;
+  /** Tile color whose 4+ lines grant Heal chargers. */
+  healChargerType: number;
+  /** Tile color whose 4+ lines grant Explosion chargers. */
+  explosionChargerType: number;
+  /** Shortest line that grants a charger. */
+  chargerMinMatchLength: number;
 }
 
 export const defaultConfig: Readonly<Match3Config> = {
@@ -30,6 +38,10 @@ export const defaultConfig: Readonly<Match3Config> = {
   dragThreshold: 0.35,
   selectScale: 1.15,
   firstWaveSplash: false,
+  reshuffleOnNoMoves: true,
+  healChargerType: 2,
+  explosionChargerType: 0,
+  chargerMinMatchLength: 4,
 };
 
 export function validateConfig(c: Match3Config): string[] {

@@ -1,4 +1,4 @@
-import { CellState, type Game } from '../core';
+import { CellState, Charger, type Game } from '../core';
 import { STATE_COLORS, TILE_COLORS } from './palette';
 
 const STATE_MARK: Partial<Record<CellState, { label: string; color: string }>> = {
@@ -88,6 +88,7 @@ export class CanvasRenderer {
         }
         ctx.fillStyle = 'rgba(255,255,255,0.55)';
         this.glyph(v.type, cx, cy, size * 0.22);
+        if (v.charger !== Charger.None) this.marker(v.charger, cx, cy, size);
       }
     }
     ctx.restore();
@@ -125,6 +126,22 @@ export class CanvasRenderer {
       ctx.textAlign = 'right';
       ctx.fillText(mark.label, px + cs * 0.9, py + cs * 0.06);
     });
+  }
+
+  /** Skill charger badge: white disc with H (heal) or E (explosion). */
+  private marker(charger: Charger, cx: number, cy: number, size: number): void {
+    const { ctx } = this;
+    const r = size * 0.24;
+    const bx = cx + size * 0.28, by = cy - size * 0.28;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(bx, by, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#1c2433';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `700 ${Math.round(r * 1.3)}px ${FONT}`;
+    ctx.fillText(charger === Charger.Heal ? 'H' : 'E', bx, by + r * 0.05);
   }
 
   private glyph(type: number, cx: number, cy: number, r: number): void {

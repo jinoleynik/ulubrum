@@ -17,12 +17,17 @@ export const CELL_STATE_LABEL: Record<CellState, string> = {
   [CellState.Falling]: 'Falling',
 };
 
+/** Skill marker carried by a tile (travels with the tile through swaps and gravity). */
+export const Charger = { None: 0, Heal: 1, Explosion: 2 } as const;
+export type Charger = (typeof Charger)[keyof typeof Charger];
+
 /** Visual position of a tile, in cell units (x right, y up). Animated by the game. */
 export interface TileView {
   type: number;
   x: number;
   y: number;
   scale: number;
+  charger: Charger;
 }
 
 /** A fixed grid slot. Cells never move; their contents (type + view) do. */
