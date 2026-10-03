@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Match-3 MVP</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧩</text></svg>" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <main>
+      <section>
+        <h1>Match-3 MVP</h1>
+        <p class="sub">Drag a tile toward a neighbour, or tap one tile and then an adjacent one. Tiles stay playable while others clear and fall.</p>
+        <div class="board-wrap"><canvas id="board" tabindex="0" aria-label="Match-3 board"></canvas></div>
+        <div class="legend" id="legend" hidden>
+          <span><i style="background: #f5c518"></i>S swapping</span>
+          <span><i style="background: #e5484d"></i>D destroying</span>
+          <span><i style="background: #3e8ef7"></i>F falling</span>
+        </div>
+      </section>
+
+      <aside>
+        <div class="panel">
+          <h2>State</h2>
+          <dl class="stats">
+            <dt>Resolve chain</dt><dd id="sChain">idle</dd>
+            <dt>Wave in chain</dt><dd id="sWave">0</dd>
+            <dt>Swaps in flight</dt><dd id="sSwaps">0</dd>
+            <dt>Possible moves</dt><dd id="sMoves">0</dd>
+            <dt>Tiles cleared</dt><dd id="sCleared">0</dd>
+            <dt>Valid swaps</dt><dd id="sValid">0</dd>
+            <dt>Reverted swaps</dt><dd id="sReverted">0</dd>
+            <dt>Rule violations</dt><dd id="sViolations">0</dd>
+          </dl>
+        </div>
+
+        <div class="panel">
+          <h2>Controls</h2>
+          <div class="row"><label for="speed">Speed <span id="speedValue">1.00×</span></label><input id="speed" type="range" min="0.05" max="1.5" step="0.05" value="1" /></div>
+          <div class="row"><label for="states">Show cell states</label><input id="states" type="checkbox" /></div>
+          <div class="row"><label for="splash">Splash on player's first wave (next board)</label><input id="splash" type="checkbox" /></div>
+          <div class="row"><label for="colors">Colors</label><input id="colors" type="number" min="3" max="6" value="6" /></div>
+          <div class="row"><label for="seed">Seed</label><input id="seed" type="number" value="1234" /></div>
+          <div class="buttons">
+            <button class="primary" id="btnNew">New board</button>
+            <button id="btnRandom">Random seed</button>
+            <button class="danger" id="btnHalt">Halt</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Event log</h2>
+          <ul class="log" id="log"></ul>
+        </div>
+      </aside>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
