@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CellState } from '../src/core';
-import { assertSettled, frames, makeGame, settle } from './helpers';
+import { Bonus, CellState } from '../src/core';
+import { assertSettled, flush, frames, makeGame, settle } from './helpers';
 
 // y=3 at top. Swapping (1,0)↔(1,1) makes 0,0,0 on the bottom row.
 const LAYOUT = ['4523', '3452', '2034', '0105'];
@@ -129,5 +129,28 @@ describe('reshuffle on dead board', () => {
     await settle(game);
     expect(events.some((e) => e.kind === 'reshuffled')).toBe(false);
     expect(game.board.toRows()).toEqual(LAYOUT);
+  });
+});
+
+describe('animation state', () => {
+  it('a new bonus pops in from 0 to 1 and a destroyed tile spins and swells before it vanishes', async () => {
+    const layout = ['01010101', '10101010', '01010101', '10101010', '01010101', '10101010', '01201010', '22320345'];
+    const { game } = makeGame(layout, {}, 3);
+    const seen: { rot: number; scale: number }[] = [];
+    game.trySwap(game.board.idx(2, 0), game.board.idx(2, 1));
+    for (let i = 0; i < 600 && (i < 5 || game.isBusy); i++) {
+      game.tick(1 / 60);
+      await flush();
+      const v = game.board.at(0, 0).view;
+      if (v) seen.push({ rot: v.rot, scale: v.scale });
+    }
+    expect(seen.some((s) => s.rot !== 0)).toBe(true);
+    expect(Math.max(...seen.map((s) => s.scale))).toBeGreaterThan(1.05); // the squash-and-pop swell
+
+    game.queueBonus(Bonus.Coin, 1);
+    const marked = game.board.cells.find((c) => c.view!.bonus === Bonus.Coin)!.view!;
+    expect(marked.markAnim).toBe(0);
+    await frames(game, 40);
+    expect(marked.markAnim).toBe(1);
   });
 });

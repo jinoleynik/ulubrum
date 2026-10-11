@@ -3,7 +3,7 @@ import type { Match3Config } from './config';
 import { mulberry32 } from './rng';
 import { FrameScheduler } from './scheduler';
 import type { Rng } from './rng';
-import { Charger, CellState, isActive, type TileView } from './types';
+import { Bonus, bonusLevelForMatch, CellState, isActive, type TileView } from './types';
 
 export type GameEvent =
   | { kind: 'boardCreated'; seed: number }
@@ -12,8 +12,8 @@ export type GameEvent =
   | { kind: 'swapBlocked'; a: number; b: number; reason: string }
   | { kind: 'waveStarted'; wave: number; count: number }
   | { kind: 'splash'; added: number }
-  | { kind: 'waveDestroying'; wave: number; tiles: DestroyedTile[] }
-  | { kind: 'chargersGranted'; granted: { index: number; charger: Charger }[] }
+  | { kind: 'waveDestroying'; wave: number; tiles: DestroyedTile[]; player: boolean }
+  | { kind: 'tilesMarked'; marked: { index: number; universal: boolean; bonus: Bonus; level: number }[] }
   | { kind: 'chainFinished'; waves: number }
   | { kind: 'reshuffled'; attempts: number }
   | { kind: 'spawnFallback'; x: number; y: number }
@@ -24,13 +24,13 @@ export type GameEvent =
 export interface DestroyedTile {
   index: number;
   type: number;
-  charger: Charger;
-}
-
-/** Skill levels that drive chargers on the board. 0 disables the skill. */
-export interface ChargerSkills {
-  heal: number;
-  explosion: number;
+  bonus: Bonus;
+  bonusLevel: number;
+  /** Tiles this Bomb or Line took with it (0 for everything else). */
+  blast: number;
+  /** Column of this Line's upward beam, which flies on into the enemy rows above the board; -1 if none. */
+  beamColumn: number;
+  universal: boolean;
 }
 
 export interface GameStats {
@@ -45,11 +45,11 @@ export interface GameStats {
 
 export interface GameOptions {
   seed: number;
+  /** Skill level per bonus type; 0 (or missing) means locked and the bonus never spawns. */
+  bonusSkills?: Partial<Record<Bonus, number>>;
   /** Optional fixed starting layout (see Board.fromRows). Otherwise a match-free random fill. */
   layout?: string[];
   scheduler?: FrameScheduler;
-  /** Levels for charger grants and explosion splash. Defaults to both off. */
-  chargerSkills?: ChargerSkills;
 }
 
 /**
@@ -62,11 +62,18 @@ export class Game {
   readonly scheduler: FrameScheduler;
   readonly stats: GameStats = { wave: 0, cleared: 0, validSwaps: 0, revertedSwaps: 0, chains: 0, violations: 0 };
 
-  readonly chargerSkills: Readonly<ChargerSkills>;
   private readonly rng: Rng;
-  private pendingGrants: { charger: Charger; count: number }[] = [];
+  /** Marks queued during a chain; they land on random tiles once the board settles. */
+  private pendingMarks: { universal: boolean; bonus: Bonus; level: number }[] = [];
+  private readonly bonusSkills: Partial<Record<Bonus, number>>;
+  /** Set by a player swap; the next wave is credited to the player. */
+  private playerPending = false;
   private listeners = new Set<(e: GameEvent) => void>();
 
+  /** Lets a color force its Line tiles to fire an upward beam (the Orange ultimate). */
+  forceBeamUp: (colorType: number) => boolean = () => false;
+  /** True while the hero is stunned: swaps and taps are ignored. */
+  locked = false;
   private _halted = false;
   private chainRunning = false;
   private dirty = false;
@@ -83,7 +90,7 @@ export class Game {
     this.scheduler = opts.scheduler ?? new FrameScheduler();
     const rng = mulberry32(opts.seed);
     this.rng = rng;
-    this.chargerSkills = { heal: 0, explosion: 0, ...opts.chargerSkills };
+    this.bonusSkills = { ...opts.bonusSkills };
     const hooks = {
       onViolation: (message: string) => this.emit({ kind: 'violation', message }),
       onSpawnFallback: (x: number, y: number) => this.emit({ kind: 'spawnFallback', x, y }),
@@ -91,8 +98,10 @@ export class Game {
 
     if (opts.layout) {
       this.board = Board.fromRows(opts.layout, config.colorCount, rng, hooks);
+      this.board.spawnAssist = config.spawnAssist;
     } else {
       this.board = new Board(config.width, config.height, config.colorCount, rng, hooks);
+      this.board.spawnAssist = config.spawnAssist;
       this.board.fillEmpty(CellState.Idle);
     }
 
@@ -163,7 +172,7 @@ export class Game {
 
   /** Click-select behaviour for a tap on cell i. */
   tap(i: number): void {
-    if (this._halted || !isActive(this.board.cells[i])) return;
+    if (this._halted || this.locked || !isActive(this.board.cells[i])) return;
     if (this._selected < 0) return this.select(i);
     if (this._selected === i) return this.deselect();
     if (this.board.isAdjacent(this._selected, i)) {
@@ -197,7 +206,7 @@ export class Game {
   /** Starts a swap if both cells are Idle, non-empty and orthogonally adjacent. */
   trySwap(a: number, b: number): boolean {
     const board = this.board;
-    if (this._halted) return false;
+    if (this._halted || this.locked) return false;
     if (a < 0 || b < 0 || a >= board.cells.length || b >= board.cells.length) return false;
     if (!board.isAdjacent(a, b)) return false;
 
@@ -238,7 +247,7 @@ export class Game {
     await move('a');
 
     // Validate against the board as it is now — other tiles may have changed meanwhile.
-    if (!board.swapCreatesMatch(a, b)) {
+    if (!this.swapMakesMatch(a, b)) {
       await move('b');
       ca.state = CellState.Idle;
       cb.state = CellState.Idle;
@@ -257,11 +266,68 @@ export class Game {
     this.requestResolve(true);
   }
 
-  // ── RESOLVE CHAIN ────────────────────────────────────────────
+  /**
+   * A swap counts if it makes a line. Universal tiles in the swap's rows and columns may
+   * stand in for any color; the first color that works sticks to the tile (it is about to be cleared).
+   */
+  private swapMakesMatch(a: number, b: number): boolean {
+    const { board } = this;
+    if (board.swapCreatesMatch(a, b)) return true;
+    const near = (i: number) =>
+      board.xOf(i) === board.xOf(a) || board.yOf(i) === board.yOf(a) ||
+      board.xOf(i) === board.xOf(b) || board.yOf(i) === board.yOf(b);
+    for (let w = 0; w < board.cells.length; w++) {
+      const cell = board.cells[w];
+      if (!cell.view?.universal || cell.type < 0 || !near(w)) continue;
+      if (cell.state !== CellState.Idle && w !== a && w !== b) continue;
+      const original = cell.type;
+      for (let t = 0; t < board.colorCount; t++) {
+        if (t === original) continue;
+        cell.type = t;
+        if (board.swapCreatesMatch(a, b)) {
+          cell.view.type = t;
+          return true;
+        }
+      }
+      cell.type = original;
+    }
+    return false;
+  }
 
+  // ── TILE MARKS ───────────────────────────────────────────────
+
+  /** Queues `count` random tiles to become Universal once the board settles. */
+  queueUniversal(count = 1): void {
+    for (let n = 0; n < count; n++) this.pendingMarks.push({ universal: true, bonus: Bonus.None, level: 0 });
+    if (!this.chainRunning) this.applyMarks();
+  }
+
+  /** Queues a random tile to receive a bonus once the board settles. */
+  queueBonus(bonus: Bonus, level = 1): void {
+    this.pendingMarks.push({ universal: false, bonus, level });
+    if (!this.chainRunning) this.applyMarks();
+  }
+
+  /** Bonus types the player has unlocked, i.e. may spawn. */
+  unlockedBonuses(): Bonus[] {
+    return ([Bonus.Bomb, Bonus.Line, Bonus.Coin, Bonus.Heal, Bonus.Time, Bonus.MaxHp, Bonus.Damage, Bonus.Bucket] as Bonus[]).filter((b) => (this.bonusSkills[b] ?? 0) > 0);
+  }
+
+  /** Player action only: every 4+ line leaves a random unlocked bonus, leveled by its length. */
+  private queueMatchBonuses(runs: MatchRun[]): void {
+    const unlocked = this.unlockedBonuses();
+    if (unlocked.length === 0) return;
+    for (const run of runs) {
+      if (run.length < 4) continue;
+      this.queueBonus(unlocked[Math.floor(this.rng() * unlocked.length)], bonusLevelForMatch(run.length));
+    }
+  }
+
+  // ── RESOLVE CHAIN ────────────────────────────────────────
   /** Starts the chain, or marks the running one dirty. Never starts a second chain. */
   private requestResolve(playerWave: boolean): void {
     if (this._halted) return;
+    if (playerWave) this.playerPending = true;
     if (this.chainRunning) {
       this.dirty = true;
       return;
@@ -291,21 +357,20 @@ export class Game {
       }
 
       this.stats.wave++;
-      const opening = this.stats.wave === 1;
-      if (opening) {
-        this.queueChargerGrants(runs);
-        this.addExplosionSplash(matches);
-      }
+      const player = this.playerPending;
+      this.playerPending = false;
+      if (player) this.queueMatchBonuses(runs);
       if (splash) this.addSplash(matches);
       splash = false;
+      const blasts = this.expandBonuses(matches);
       this.emit({ kind: 'waveStarted', wave: this.stats.wave, count: matches.size });
 
-      await this.destroyTiles(matches);
+      await this.destroyTiles(matches, player, blasts);
       await this.dropTiles();
     }
 
     this.chainRunning = false;
-    if (!this._halted) this.applyChargerGrants();
+    if (!this._halted) this.applyMarks();
     this.emit({ kind: 'chainFinished', waves: this.stats.wave });
     void this.reshuffleIfStuck();
   }
@@ -327,6 +392,36 @@ export class Game {
       return;
     }
 
+    await this.rebuildBoard();
+    this.reshuffling = false;
+    this.afterReshuffle();
+  }
+
+  /**
+   * Player action: clears the whole board for a fresh one, dropping every tile bonus and
+   * Universal mark with it. Only while nothing is animating.
+   */
+  reshuffle(): boolean {
+    if (this._halted || this.isBusy) return false;
+    this.reshuffling = true;
+    this.pendingMarks = [];
+    void this.rebuildBoard().then(() => {
+      this.reshuffling = false;
+      this.afterReshuffle();
+    });
+    return true;
+  }
+
+  /** Boards with few colors can spawn matches; let the normal chain clear them. */
+  private afterReshuffle(): void {
+    if (this._halted) return;
+    if (this.board.findMatches().size > 0) this.requestResolve(false);
+    else void this.reshuffleIfStuck();
+  }
+
+  /** Shrinks every tile away, then drops a fresh match-free set guaranteed to offer a move. */
+  private async rebuildBoard(): Promise<void> {
+    const { board } = this;
     const claimed: number[] = [];
     board.cells.forEach((c, i) => {
       if (!isActive(c)) return;
@@ -368,11 +463,6 @@ export class Game {
     }
     this.emit({ kind: 'reshuffled', attempts });
     await this.animateFalls(falling);
-    this.reshuffling = false;
-
-    // Boards with few colors can spawn matches; let the normal chain clear them.
-    if (board.findMatches().size > 0) this.requestResolve(false);
-    else void this.reshuffleIfStuck();
   }
 
   private addSplash(matches: Set<number>): void {
@@ -391,64 +481,134 @@ export class Game {
     if (extra.size) this.emit({ kind: 'splash', added: extra.size });
   }
 
-  /** Opening wave only: 4+ lines in a skill color earn `length - (min - 1)` chargers each. */
-  private queueChargerGrants(runs: MatchRun[]): void {
-    const { config, chargerSkills } = this;
-    for (const run of runs) {
-      let charger: Charger = Charger.None;
-      if (run.type === config.healChargerType && chargerSkills.heal > 0) charger = Charger.Heal;
-      else if (run.type === config.explosionChargerType && chargerSkills.explosion > 0) charger = Charger.Explosion;
-      if (charger === Charger.None || run.length < config.chargerMinMatchLength) continue;
-      this.pendingGrants.push({ charger, count: run.length - (config.chargerMinMatchLength - 1) });
+  /** Marks random Idle tiles once the board has settled. */
+  private applyMarks(): void {
+    const marks = this.pendingMarks;
+    this.pendingMarks = [];
+    const marked: { index: number; universal: boolean; bonus: Bonus; level: number }[] = [];
+    for (const m of marks) {
+      const candidates: number[] = [];
+      this.board.cells.forEach((c, i) => {
+        const v = c.view;
+        if (!isActive(c) || !v) return;
+        if (m.universal ? !v.universal : v.bonus === Bonus.None) candidates.push(i);
+      });
+      if (candidates.length === 0) continue;
+      const i = candidates[Math.floor(this.rng() * candidates.length)];
+      const v = this.board.cells[i].view!;
+      if (m.universal) v.universal = true;
+      else {
+        v.bonus = m.bonus;
+        v.bonusLevel = m.level;
+      }
+      v.markAnim = 0;
+      void this.scheduler.tween(MARK_POP_SECONDS, (k) => (v.markAnim = k));
+      marked.push({ index: i, universal: m.universal, bonus: m.bonus, level: m.level });
     }
+    if (marked.length) this.emit({ kind: 'tilesMarked', marked });
   }
 
-  /** Marks random Idle, unmarked tiles once the board has settled. */
-  private applyChargerGrants(): void {
-    const grants = this.pendingGrants;
-    this.pendingGrants = [];
-    const granted: { index: number; charger: Charger }[] = [];
-    for (const { charger, count } of grants) {
-      for (let n = 0; n < count; n++) {
-        const candidates: number[] = [];
-        this.board.cells.forEach((c, i) => {
-          if (isActive(c) && c.view && c.view.charger === Charger.None) candidates.push(i);
-        });
-        if (candidates.length === 0) break;
-        const i = candidates[Math.floor(this.rng() * candidates.length)];
-        this.board.cells[i].view!.charger = charger;
-        granted.push({ index: i, charger });
+  /**
+   * Bomb and Line tiles in the wave take other tiles with them, and those may carry bonuses of
+   * their own, so this runs until nothing new is added. Coin, Heal and Time are the session's job.
+   */
+  private expandBonuses(matches: Set<number>): Map<number, { count: number; beam: number }> {
+    const { board } = this;
+    const done = new Set<number>();
+    const blasts = new Map<number, { count: number; beam: number }>();
+    let added = 0;
+    for (let again = true; again; ) {
+      again = false;
+      for (const i of [...matches]) {
+        const v = board.cells[i].view;
+        if (done.has(i) || !v || (v.bonus !== Bonus.Bomb && v.bonus !== Bonus.Line)) continue;
+        done.add(i);
+        let beam = -1;
+        let hit: number[];
+        if (v.bonus === Bonus.Bomb) hit = this.bombTargets(i, v.bonusLevel, matches);
+        else {
+          const line = this.lineTargets(i, v.bonusLevel, matches, this.forceBeamUp(v.type));
+          hit = line.tiles;
+          if (line.up) beam = board.xOf(i);
+        }
+        for (const n of hit) {
+          matches.add(n);
+          added++;
+        }
+        blasts.set(i, { count: hit.length, beam });
+        again = true;
       }
     }
-    if (granted.length) this.emit({ kind: 'chargersGranted', granted });
+    if (added) this.emit({ kind: 'splash', added });
+    return blasts;
   }
 
-  /** Opening wave only: matched Explosion tiles clear the Chebyshev square around them. Splash tiles never splash. */
-  private addExplosionSplash(matches: Set<number>): void {
+  private canTake(i: number, matches: Set<number>): boolean {
+    return !matches.has(i) && isActive(this.board.cells[i]);
+  }
+
+  /** Level + skill random tiles from the tightest ring around the bomb that holds enough of them. */
+  private bombTargets(from: number, level: number, matches: Set<number>): number[] {
     const { board } = this;
-    const level = this.chargerSkills.explosion;
-    if (level <= 0) return;
-    const radius = Math.max(1, level);
-    const extra = new Set<number>();
-    for (const i of matches) {
-      if (board.cells[i].view?.charger !== Charger.Explosion) continue;
-      const x = board.xOf(i), y = board.yOf(i);
-      for (let dy = -radius; dy <= radius; dy++) {
-        for (let dx = -radius; dx <= radius; dx++) {
+    const want = level + (this.bonusSkills[Bonus.Bomb] ?? 0);
+    const x = board.xOf(from), y = board.yOf(from);
+    const near = (r: number) => {
+      const out: number[] = [];
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
           if (!dx && !dy) continue;
-          const nx = x + dx, ny = y + dy;
-          if (!board.inBounds(nx, ny)) continue;
-          const n = board.idx(nx, ny);
-          if (!matches.has(n) && isActive(board.cells[n])) extra.add(n);
+          if (!board.inBounds(x + dx, y + dy)) continue;
+          const n = board.idx(x + dx, y + dy);
+          if (this.canTake(n, matches)) out.push(n);
         }
       }
+      return out;
+    };
+    let pool = near(1);
+    for (let r = 2; pool.length < want && r <= Math.max(board.width, board.height); r++) pool = near(r);
+    for (let k = pool.length - 1; k > 0; k--) {
+      const j = Math.floor(this.rng() * (k + 1));
+      [pool[k], pool[j]] = [pool[j], pool[k]];
     }
-    for (const n of extra) matches.add(n);
-    if (extra.size) this.emit({ kind: 'splash', added: extra.size });
+    return pool.slice(0, want);
+  }
+
+  /**
+   * Level 1: one random ray. 2: a row or a column. 3: a T (three rays). 4: row and column.
+   * An upward ray flies on past the board into the enemy rows (`up`); `forceUp` guarantees one.
+   */
+  private lineTargets(from: number, level: number, matches: Set<number>, forceUp: boolean): { tiles: number[]; up: boolean } {
+    const { board } = this;
+    const UP: [number, number] = [0, 1];
+    const dirs: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (let k = dirs.length - 1; k > 0; k--) {
+      const j = Math.floor(this.rng() * (k + 1));
+      [dirs[k], dirs[j]] = [dirs[j], dirs[k]];
+    }
+    let chosen: [number, number][];
+    if (level <= 1) chosen = dirs.slice(0, 1);
+    else if (level === 2) chosen = dirs[0][0] !== 0 ? [[1, 0], [-1, 0]] : [[0, 1], [0, -1]];
+    else if (level === 3) chosen = dirs.slice(0, 3);
+    else chosen = dirs;
+    const hasUp = (list: [number, number][]) => list.some(([dx, dy]) => dx === 0 && dy === 1);
+    if (forceUp && !hasUp(chosen)) {
+      if (level <= 1) chosen = [UP];
+      else if (level === 2) chosen = [[0, 1], [0, -1]];
+      else chosen = [UP, ...chosen.filter(([dx, dy]) => !(dx === 0 && dy === -1)).slice(0, 2)];
+    }
+    const out: number[] = [];
+    for (const [dx, dy] of chosen) {
+      let x = board.xOf(from) + dx, y = board.yOf(from) + dy;
+      for (; board.inBounds(x, y); x += dx, y += dy) {
+        const n = board.idx(x, y);
+        if (this.canTake(n, matches)) out.push(n);
+      }
+    }
+    return { tiles: out, up: hasUp(chosen) };
   }
 
   /** tiles_dest: claim → Destroying → animate → clear. */
-  private async destroyTiles(matches: Set<number>): Promise<void> {
+  private async destroyTiles(matches: Set<number>, player: boolean, blasts: Map<number, { count: number; beam: number }>): Promise<void> {
     const { board } = this;
     const claimed: number[] = [];
     for (const i of matches) {
@@ -459,19 +619,28 @@ export class Game {
     }
     if (this._selected >= 0 && board.cells[this._selected].state === CellState.Destroying) this.deselect();
 
-    // Listeners (score, combat, charger effects) see the tiles while they still exist.
+    // Listeners (score, combat, color skills) see the tiles while they still exist.
     this.emit({
       kind: 'waveDestroying',
       wave: this.stats.wave,
+      player,
       tiles: claimed.map((index) => ({
         index,
         type: board.cells[index].type,
-        charger: board.cells[index].view?.charger ?? Charger.None,
+        bonus: board.cells[index].view?.bonus ?? Bonus.None,
+        bonusLevel: board.cells[index].view?.bonusLevel ?? 0,
+        blast: blasts.get(index)?.count ?? 0,
+        beamColumn: blasts.get(index)?.beam ?? -1,
+        universal: board.cells[index].view?.universal ?? false,
       })),
     });
 
     await this.scheduler.tween(this.config.destroyDuration, (k) => {
-      for (const i of claimed) board.cells[i].view!.scale = 1 - k;
+      for (const i of claimed) {
+        const v = board.cells[i].view!;
+        v.scale = popScale(k);
+        v.rot = k * 0.5 * (i % 2 ? 1 : -1);
+      }
     });
 
     for (const i of claimed) {
@@ -540,6 +709,12 @@ export class Game {
   }
 }
 
+/** Seconds a new bonus / Universal mark takes to pop in. */
+const MARK_POP_SECONDS = 0.4;
+
+/** Destroy animation: swell to 1.2× in the first quarter, then shrink away. */
+export const popScale = (k: number): number => (k < 0.25 ? 1 + 0.2 * (k / 0.25) : 1.2 * (1 - (k - 0.25) / 0.75));
+
 function makeView(type: number, x: number, y: number): TileView {
-  return { type, x, y, scale: 1, charger: Charger.None };
+  return { type, x, y, scale: 1, bonus: Bonus.None, bonusLevel: 0, universal: false, markAnim: 1, rot: 0 };
 }

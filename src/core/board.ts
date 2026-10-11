@@ -24,6 +24,8 @@ type Eligible = (x: number, y: number) => boolean;
  */
 export class Board {
   readonly cells: Cell[];
+  /** See Match3Config.spawnAssist. */
+  spawnAssist = 0;
   private readonly spawnOrder: number[];
 
   constructor(
@@ -285,6 +287,42 @@ export class Board {
     return filled;
   }
 
+  /**
+   * Swaps in the 5×5 window around (x, y) that would complete a line, if `type` were placed there.
+   * Counts moves, not clusters: a tile that sits beside a same-colored pair only scores when a
+   * swap can actually finish the line.
+   */
+  private movesNear(x: number, y: number, type: number): number {
+    const cell = this.at(x, y);
+    const prev = cell.type;
+    cell.type = type;
+    const loose: Eligible = (cx, cy) => this.at(cx, cy).type !== EMPTY;
+    let moves = 0;
+    for (let cy = y - 2; cy <= y + 2; cy++) {
+      for (let cx = x - 2; cx <= x + 2; cx++) {
+        if (!this.inBounds(cx, cy)) continue;
+        const a = this.at(cx, cy);
+        if (a.type === EMPTY) continue;
+        for (const [dx, dy] of [[1, 0], [0, 1]] as const) {
+          const nx = cx + dx, ny = cy + dy;
+          if (!this.inBounds(nx, ny)) continue;
+          const b = this.at(nx, ny);
+          if (b.type === EMPTY) continue;
+          [a.type, b.type] = [b.type, a.type];
+          if (this.lineThrough(cx, cy, a.type, loose) || this.lineThrough(nx, ny, b.type, loose)) moves++;
+          [a.type, b.type] = [b.type, a.type];
+        }
+      }
+    }
+    // Moves should come from scattered setups, not from clumps: adjacent same colors cost points.
+    let clumped = 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      if (this.inBounds(x + dx, y + dy) && this.at(x + dx, y + dy).type === type) clumped++;
+    }
+    cell.type = prev;
+    return moves - 3 * clumped;
+  }
+
   private pickSpawnType(x: number, y: number): number {
     const order = this.spawnOrder;
     const n = this.colorCount;
@@ -292,6 +330,18 @@ export class Board {
     for (let i = n - 1; i > 0; i--) {
       const j = Math.floor(this.rng() * (i + 1));
       [order[i], order[j]] = [order[j], order[i]];
+    }
+    if (this.spawnAssist > 0 && this.rng() < this.spawnAssist) {
+      let best = -1, bestScore = -1;
+      for (let i = 0; i < n; i++) {
+        if (this.wouldCreateMatchAt(x, y, order[i])) continue;
+        const score = this.movesNear(x, y, order[i]);
+        if (score > bestScore) {
+          best = order[i];
+          bestScore = score;
+        }
+      }
+      if (best >= 0) return best;
     }
     for (let i = 0; i < n; i++) {
       if (!this.wouldCreateMatchAt(x, y, order[i])) return order[i];

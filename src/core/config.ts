@@ -17,20 +17,19 @@ export interface Match3Config {
   selectScale: number;
   /** Player's first wave only: also clear Idle orthogonal neighbours of matched tiles. */
   firstWaveSplash: boolean;
+  /**
+   * 0..1: chance that a new tile is picked as the color that gives the most possible swaps
+   * nearby (more moves, not clumps) instead of at random. Never creates an instant match.
+   */
+  spawnAssist: number;
   /** When the settled board has no valid swap, clear it and drop a fresh set of tiles. */
   reshuffleOnNoMoves: boolean;
-  /** Tile color whose 4+ lines grant Heal chargers. */
-  healChargerType: number;
-  /** Tile color whose 4+ lines grant Explosion chargers. */
-  explosionChargerType: number;
-  /** Shortest line that grants a charger. */
-  chargerMinMatchLength: number;
 }
 
 export const defaultConfig: Readonly<Match3Config> = {
   width: 8,
   height: 8,
-  colorCount: 6,
+  colorCount: 8,
   swapDuration: 0.15,
   destroyDuration: 0.2,
   fallGravity: 60,
@@ -38,10 +37,8 @@ export const defaultConfig: Readonly<Match3Config> = {
   dragThreshold: 0.35,
   selectScale: 1.15,
   firstWaveSplash: false,
+  spawnAssist: 0,
   reshuffleOnNoMoves: true,
-  healChargerType: 2,
-  explosionChargerType: 0,
-  chargerMinMatchLength: 4,
 };
 
 export function validateConfig(c: Match3Config): string[] {

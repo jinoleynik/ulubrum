@@ -54,7 +54,7 @@ export class Panel {
     splash.addEventListener('change', () => (this.settings.splash = splash.checked));
 
     const readBoardInputs = () => {
-      const n = Math.max(3, Math.min(6, Math.trunc(Number(colors.value)) || 6));
+      const n = Math.max(3, Math.min(8, Math.trunc(Number(colors.value)) || 8));
       colors.value = String(n);
       this.settings.colorCount = n;
       const g = Math.max(4, Math.min(12, Math.trunc(Number(grid.value)) || 8));
