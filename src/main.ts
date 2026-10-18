@@ -191,3 +191,10 @@ Object.defineProperties(window, {
   game: { get: () => session.game },
   progress: { value: progress },
 });
+
+// PWA: offline cache. Skipped in dev so HMR is not served stale files.
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {});
+  });
+}

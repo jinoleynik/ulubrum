@@ -288,3 +288,38 @@ button.link { background: transparent; border: 0; color: #8c97a8; text-decoratio
 }
 .floater.coin { color: #ffd34d; font-size: 18px; }
 .overlay { z-index: 4; }
+
+/* ── portrait phone view ──
+   The game is a portrait phone screen. On a wide window it is shown alone, centered, as a phone-sized column;
+   the developer panels, title and hints are hidden unless the page is opened with ?debug. */
+html { height: 100%; overscroll-behavior: none; -webkit-text-size-adjust: 100%; }
+body {
+  min-height: 100%; overscroll-behavior: none; -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation;
+}
+html:not(.debug) main { display: block; max-width: none; padding: 0; }
+html:not(.debug) body { background: #05080c; }
+html:not(.debug) main > aside, html:not(.debug) section > h1, html:not(.debug) section > .sub, html:not(.debug) .legend { display: none; }
+html:not(.debug) main {
+  min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center;
+  padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+}
+html:not(.debug) section { width: 100%; }
+html:not(.debug) .board-wrap {
+  width: min(100%, calc((100vh - 24px) * var(--cols) / var(--rows)));
+  width: min(100%, calc((100dvh - 24px) * var(--cols) / var(--rows)));
+  box-shadow: 0 10px 50px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+/* A real phone (or any narrow window): fill the screen edge to edge, no frame. */
+@media (max-width: 520px), (pointer: coarse) and (max-width: 820px) {
+  html:not(.debug) body { background: var(--board); }
+  html:not(.debug) main { padding: 0; }
+  html:not(.debug) .board-wrap {
+    width: min(100vw, calc(100vh * var(--cols) / var(--rows)));
+    width: min(100vw, calc(100dvh * var(--cols) / var(--rows)));
+    max-width: none; border-radius: 0; box-shadow: none;
+  }
+}
+@media (display-mode: standalone) {
+  html:not(.debug) body { background: var(--board); }
+}
